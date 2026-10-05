@@ -176,15 +176,17 @@ function LegendSample({ mark, label, color, dashed }: { mark?: EndMark; label: s
   );
 }
 
-function revealRow(row: HTMLElement) {
+function revealRow(row: HTMLElement, scale: number, skipScroller: HTMLElement | null) {
   const scroller = row.parentElement;
-  if (!scroller) return;
+  if (!scroller || scroller === skipScroller || scale <= 0) return;
   const scrollerRect = scroller.getBoundingClientRect();
   const rowRect = row.getBoundingClientRect();
-  if (rowRect.top < scrollerRect.top) {
-    scroller.scrollTop -= scrollerRect.top - rowRect.top;
-  } else if (rowRect.bottom > scrollerRect.bottom) {
-    scroller.scrollTop += rowRect.bottom - scrollerRect.bottom;
+  const topGap = (scrollerRect.top - rowRect.top) / scale;
+  const bottomGap = (rowRect.bottom - scrollerRect.bottom) / scale;
+  if (topGap > 1) {
+    scroller.scrollTop -= topGap;
+  } else if (bottomGap > 1) {
+    scroller.scrollTop += bottomGap;
   }
 }
 
@@ -366,6 +368,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   const cardDrag = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const revealedFocusKey = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -460,24 +463,33 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
     return highlighted;
   }, [activeRelations]);
 
-  const measureLines = useCallback(() => {
+  const measureLines = useCallback((reveal: boolean) => {
     const canvas = canvasRef.current;
     if (!canvas || !active || activeRelations.length === 0) {
+      revealedFocusKey.current = null;
       setLines((current) => (current.length === 0 ? current : []));
       return;
     }
     const focusKey = columnKey(active.tableId, active.column);
-    const revealKeys: string[] = [];
-    activeRelations.forEach((relation) => {
-      sideColumns(relation, 'from').forEach((column) => revealKeys.push(columnKey(relationFromId(relation), column)));
-      sideColumns(relation, 'to').forEach((column) => revealKeys.push(columnKey(relationToId(relation), column)));
-    });
-    revealKeys.filter((key) => key !== focusKey).forEach((key) => {
-      const row = rowRefs.current.get(key);
-      if (row) revealRow(row);
-    });
-    const focusRow = rowRefs.current.get(focusKey);
-    if (focusRow) revealRow(focusRow);
+    if (reveal) {
+      const revealToken = `${focusKey}\0${activeRelations.map((relation, index) => (
+        `${index}:${relationMapping(relation)}:${cardinalityLabel(relation)}`
+      )).join('\0')}`;
+      if (revealedFocusKey.current !== revealToken) {
+        revealedFocusKey.current = revealToken;
+        const skipScroller = rowRefs.current.get(focusKey)?.parentElement ?? null;
+        const peerKeys = new Set<string>();
+        activeRelations.forEach((relation) => {
+          sideColumns(relation, 'from').forEach((column) => peerKeys.add(columnKey(relationFromId(relation), column)));
+          sideColumns(relation, 'to').forEach((column) => peerKeys.add(columnKey(relationToId(relation), column)));
+        });
+        peerKeys.forEach((key) => {
+          if (key === focusKey) return;
+          const row = rowRefs.current.get(key);
+          if (row) revealRow(row, view.scale, skipScroller);
+        });
+      }
+    }
     const channels = buildChannels(layout?.boxes ?? []);
     const laneSpread = 8;
     const next: RelationLine[] = [];
@@ -525,7 +537,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   }, [active, activeRelations, boxById, layout, layoutBoxById, positions, view.scale]);
 
   useLayoutEffect(() => {
-    measureLines();
+    measureLines(true);
   }, [measureLines, layout]);
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -540,75 +552,89 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
     ));
   };
 
+  const relationSummary = activeRelations.map((relation) => {
+    const via = viaTableName(relation);
+    const text = `${relationMapping(relation)} ${cardinalityLabel(relation)}`;
+    return via ? `${text} ${t(I18N_KEYS.EXPLORER.ER_DIAGRAM_VIA, { table: via })}` : text;
+  }).join(' · ');
+  const statusText = relationSummary || t(I18N_KEYS.EXPLORER.ER_DIAGRAM_HINT);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b theme-border px-3 py-2 text-xs theme-text-secondary">
-        <span className="theme-text-primary font-medium">{t(I18N_KEYS.EXPLORER.ER_DIAGRAM)}</span>
-        <span>{metadata.databaseName || metadata.schemaName || metadata.connectionName}</span>
-        {shown && (
-          <span>
-            {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_SUMMARY, {
-              tables: shown.tables.length,
-              relations: shown.relations.length,
-            })}
-          </span>
-        )}
-        {diagram?.truncated && (
-          <span>{t(I18N_KEYS.EXPLORER.ER_DIAGRAM_TRUNCATED, {
-            count: diagram.tables.filter((table) => !table.external).length,
-          })}</span>
-        )}
-        {diagram?.externalTruncated && (
-          <span>{t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EXTERNAL_TRUNCATED, {
-            count: diagram.tables.filter((table) => table.external).length,
-          })}</span>
-        )}
-        {junctionTables.size > 0 && (
-          <label className="inline-flex items-center gap-1">
-            <input
-              type="checkbox"
-              className="accent-violet-600"
-              checked={collapseJunctionTables}
-              onChange={(event) => setCollapseJunctionTables(event.target.checked)}
-            />
-            {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_COLLAPSE_JUNCTIONS)}
-          </label>
-        )}
-        {shown && shown.tables.length > 0 && (
-          <button
-            type="button"
-            className="rounded border theme-border px-2 py-0.5 theme-text-primary disabled:opacity-40"
-            disabled={!layoutMoved}
-            onClick={() => setPositions({})}
-          >
-            {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_RESET_LAYOUT)}
-          </button>
-        )}
-        {shown && shown.tables.length > 0 && (
-          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 border-l theme-border pl-3">
-            <LegendSample mark="one" label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_ONE)} color={ROSE} />
-            <LegendSample mark="many" label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_MANY)} color={ROSE} />
-            <LegendSample mark="many" label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_MANY_TO_MANY)} color={VIOLET} />
-            <LegendSample label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_CROSS)} dashed />
-          </span>
-        )}
-        {activeRelations.length > 0 ? (
-          activeRelations.map((relation, index) => {
-            const via = viaTableName(relation);
-            return (
-              <span key={`${relationMapping(relation)}-${index}`} className="theme-text-primary">
-                {relationMapping(relation)}
-                {' '}
-                <span className={relation.cardinality === 'MANY_TO_MANY' ? 'text-violet-600' : undefined}>
-                  {cardinalityLabel(relation)}
-                </span>
-                {via ? ` ${t(I18N_KEYS.EXPLORER.ER_DIAGRAM_VIA, { table: via })}` : ''}
-              </span>
-            );
-          })
-        ) : (
-          <span className="truncate">{t(I18N_KEYS.EXPLORER.ER_DIAGRAM_HINT)}</span>
-        )}
+      <div className="shrink-0 border-b theme-border text-xs theme-text-secondary">
+        <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+          <span className="theme-text-primary font-medium">{t(I18N_KEYS.EXPLORER.ER_DIAGRAM)}</span>
+          <span>{metadata.databaseName || metadata.schemaName || metadata.connectionName}</span>
+          {shown && (
+            <span>
+              {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_SUMMARY, {
+                tables: shown.tables.length,
+                relations: shown.relations.length,
+              })}
+            </span>
+          )}
+          {diagram?.truncated && (
+            <span>{t(I18N_KEYS.EXPLORER.ER_DIAGRAM_TRUNCATED, {
+              count: diagram.tables.filter((table) => !table.external).length,
+            })}</span>
+          )}
+          {diagram?.externalTruncated && (
+            <span>{t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EXTERNAL_TRUNCATED, {
+              count: diagram.tables.filter((table) => table.external).length,
+            })}</span>
+          )}
+          {junctionTables.size > 0 && (
+            <label className="inline-flex items-center gap-1">
+              <input
+                type="checkbox"
+                className="accent-violet-600"
+                checked={collapseJunctionTables}
+                onChange={(event) => setCollapseJunctionTables(event.target.checked)}
+              />
+              {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_COLLAPSE_JUNCTIONS)}
+            </label>
+          )}
+          {shown && shown.tables.length > 0 && (
+            <button
+              type="button"
+              className="rounded border theme-border px-2 py-0.5 theme-text-primary disabled:opacity-40"
+              disabled={!layoutMoved}
+              onClick={() => setPositions({})}
+            >
+              {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_RESET_LAYOUT)}
+            </button>
+          )}
+          {shown && shown.tables.length > 0 && (
+            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 border-l theme-border pl-3">
+              <LegendSample mark="one" label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_ONE)} color={ROSE} />
+              <LegendSample mark="many" label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_MANY)} color={ROSE} />
+              <LegendSample mark="many" label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_MANY_TO_MANY)} color={VIOLET} />
+              <LegendSample label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_LEGEND_CROSS)} dashed />
+            </span>
+          )}
+        </div>
+        <div className="flex h-7 min-w-0 items-center overflow-hidden border-t theme-border px-3" title={statusText}>
+          {activeRelations.length > 0 ? (
+            <span className="min-w-0 truncate theme-text-primary">
+              {activeRelations.map((relation, index) => {
+                const via = viaTableName(relation);
+                return (
+                  <span key={`${relationMapping(relation)}-${index}`}>
+                    {index > 0 ? <span className="px-1.5 theme-text-secondary">·</span> : null}
+                    {relationMapping(relation)}
+                    {' '}
+                    <span className={relation.cardinality === 'MANY_TO_MANY' ? 'text-violet-600' : undefined}>
+                      {cardinalityLabel(relation)}
+                    </span>
+                    {via ? ` ${t(I18N_KEYS.EXPLORER.ER_DIAGRAM_VIA, { table: via })}` : ''}
+                  </span>
+                );
+              })}
+            </span>
+          ) : (
+            <span className="min-w-0 truncate">{statusText}</span>
+          )}
+        </div>
       </div>
       <div
         className="relative min-h-0 flex-1 overflow-hidden"
@@ -742,7 +768,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
                       </span>
                     )}
                   </div>
-                  <div className="max-h-[264px] overflow-auto" onScroll={measureLines}>
+                  <div className="max-h-[264px] overflow-auto" onScroll={() => measureLines(false)}>
                     {table.columns.map((column) => {
                       const key = columnKey(id, column.name);
                       const linked = linkedColumns.has(key);
