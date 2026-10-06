@@ -366,7 +366,16 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   const [lines, setLines] = useState<RelationLine[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
-  const drag = useRef<{ pointerX: number; pointerY: number; x: number; y: number } | null>(null);
+  const drag = useRef<{
+    pointerX: number;
+    pointerY: number;
+    originX: number;
+    originY: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const viewRef = useRef(view);
+  if (!drag.current) viewRef.current = view;
   const cardDrag = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -543,12 +552,43 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
     measureLines(true);
   }, [measureLines, layout]);
 
+  const paintCanvas = (x: number, y: number, scale: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  };
+
+  const finishPan = () => {
+    const pan = drag.current;
+    if (!pan) return;
+    drag.current = null;
+    viewRef.current = { ...viewRef.current, x: pan.x, y: pan.y };
+    setView((current) => (
+      current.x === pan.x && current.y === pan.y ? current : { ...current, x: pan.x, y: pan.y }
+    ));
+  };
+
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
     const pointerX = event.clientX - rect.left;
     const pointerY = event.clientY - rect.top;
-    setView((current) => zoomDiagramView(current, pointerX, pointerY, event.deltaY));
+    setView((current) => {
+      const pan = drag.current;
+      const base = pan ? { ...current, x: pan.x, y: pan.y } : current;
+      const next = zoomDiagramView(base, pointerX, pointerY, event.deltaY);
+      if (pan) {
+        pan.originX = next.x;
+        pan.originY = next.y;
+        pan.x = next.x;
+        pan.y = next.y;
+        pan.pointerX = event.clientX;
+        pan.pointerY = event.clientY;
+      }
+      viewRef.current = next;
+      paintCanvas(next.x, next.y, next.scale);
+      return next;
+    });
   };
 
   const fitToWindow = () => {
@@ -659,7 +699,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
       </div>
       <div
         ref={viewportRef}
-        className="relative min-h-0 flex-1 overflow-hidden"
+        className="relative min-h-0 flex-1 select-none overflow-hidden"
         style={{
           backgroundImage: 'radial-gradient(circle, var(--border-color) 1px, transparent 1px)',
           backgroundSize: '18px 18px',
@@ -668,20 +708,28 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
         onWheel={onWheel}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
-          drag.current = { pointerX: event.clientX, pointerY: event.clientY, x: view.x, y: view.y };
+          event.preventDefault();
+          window.getSelection()?.removeAllRanges();
+          const origin = viewRef.current;
+          drag.current = {
+            pointerX: event.clientX,
+            pointerY: event.clientY,
+            originX: origin.x,
+            originY: origin.y,
+            x: origin.x,
+            y: origin.y,
+          };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
-          if (!drag.current) return;
-          setView((current) => ({
-            ...current,
-            x: drag.current!.x + event.clientX - drag.current!.pointerX,
-            y: drag.current!.y + event.clientY - drag.current!.pointerY,
-          }));
+          const pan = drag.current;
+          if (!pan) return;
+          pan.x = pan.originX + event.clientX - pan.pointerX;
+          pan.y = pan.originY + event.clientY - pan.pointerY;
+          paintCanvas(pan.x, pan.y, viewRef.current.scale);
         }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
+        onPointerUp={finishPan}
+        onPointerCancel={finishPan}
       >
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center text-sm theme-text-secondary">
@@ -702,7 +750,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
           <div
             ref={canvasRef}
             style={{
-              transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+              transform: `translate(${drag.current?.x ?? view.x}px, ${drag.current?.y ?? view.y}px) scale(${view.scale})`,
               transformOrigin: '0 0',
               width: canvasSize.width,
               height: canvasSize.height,
@@ -790,7 +838,11 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
                       </span>
                     )}
                   </div>
-                  <div className="max-h-[264px] overflow-auto" onScroll={() => measureLines(false)}>
+                  <div
+                    className="max-h-[264px] overflow-auto"
+                    onScroll={() => measureLines(false)}
+                    onWheel={(event) => event.stopPropagation()}
+                  >
                     {table.columns.map((column) => {
                       const key = columnKey(id, column.name);
                       const linked = linkedColumns.has(key);
@@ -813,9 +865,11 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
                             togglePin({ tableId: id, column: column.name });
                           }}
                           onPointerEnter={() => {
-                            if (linked) setHover({ tableId: id, column: column.name });
+                            if (drag.current || !linked) return;
+                            setHover({ tableId: id, column: column.name });
                           }}
                           onPointerLeave={() => {
+                            if (drag.current) return;
                             setHover((current) => (
                               current?.tableId === id && current.column === column.name ? null : current
                             ));
