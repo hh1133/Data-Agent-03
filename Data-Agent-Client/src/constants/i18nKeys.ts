@@ -262,6 +262,7 @@ export const I18N_KEYS = {
     ER_DIAGRAM_JUNCTION: 'explorer.er_diagram_junction',
     ER_DIAGRAM_COLLAPSE_JUNCTIONS: 'explorer.er_diagram_collapse_junctions',
     ER_DIAGRAM_RESET_LAYOUT: 'explorer.er_diagram_reset_layout',
+    ER_DIAGRAM_FIT: 'explorer.er_diagram_fit',
     ER_DIAGRAM_DRAG_TABLE: 'explorer.er_diagram_drag_table',
     ER_DIAGRAM_VIA: 'explorer.er_diagram_via',
     VIEW_DATA: 'explorer.view_data',

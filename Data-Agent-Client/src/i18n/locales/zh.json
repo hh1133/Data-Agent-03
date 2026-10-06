@@ -473,6 +473,7 @@
     "er_diagram_summary": "{{tables}} 张表，{{relations}} 条关系",
     "er_diagram_hint": "悬停圆点查看字段对应，单击可固定。拖动表头移动单表，拖动空白处平移",
     "er_diagram_reset_layout": "重置布局",
+    "er_diagram_fit": "适应窗口",
     "er_diagram_drag_table": "拖动表头可移动此表",
     "er_diagram_legend_one": "1",
     "er_diagram_legend_many": "N",

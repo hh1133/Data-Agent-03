@@ -9,6 +9,7 @@ import {
   cardinalityLabel,
   columnKey,
   endMarks,
+  fitDiagramView,
   isCrossRelation,
   junctionTableId,
   relationFromId,
@@ -18,6 +19,7 @@ import {
   sideColumns,
   tableId,
   viaTableName,
+  zoomDiagramView,
   collapseJunctions,
   type ColumnFocus,
   type EndMark,
@@ -367,6 +369,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   const drag = useRef<{ pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const cardDrag = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const revealedFocusKey = useRef<string | null>(null);
 
@@ -542,8 +545,17 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const next = Math.min(1.8, Math.max(0.45, view.scale + (event.deltaY < 0 ? 0.08 : -0.08)));
-    setView((current) => ({ ...current, scale: next }));
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    setView((current) => zoomDiagramView(current, pointerX, pointerY, event.deltaY));
+  };
+
+  const fitToWindow = () => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const fitted = fitDiagramView(placedBoxes, viewport.clientWidth, viewport.clientHeight);
+    if (fitted) setView(fitted);
   };
 
   const togglePin = (focus: ColumnFocus) => {
@@ -597,6 +609,15 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
           {shown && shown.tables.length > 0 && (
             <button
               type="button"
+              className="rounded border theme-border px-2 py-0.5 theme-text-primary"
+              onClick={fitToWindow}
+            >
+              {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_FIT)}
+            </button>
+          )}
+          {shown && shown.tables.length > 0 && (
+            <button
+              type="button"
               className="rounded border theme-border px-2 py-0.5 theme-text-primary disabled:opacity-40"
               disabled={!layoutMoved}
               onClick={() => setPositions({})}
@@ -637,6 +658,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
         </div>
       </div>
       <div
+        ref={viewportRef}
         className="relative min-h-0 flex-1 overflow-hidden"
         style={{
           backgroundImage: 'radial-gradient(circle, var(--border-color) 1px, transparent 1px)',

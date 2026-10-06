@@ -473,6 +473,7 @@
     "er_diagram_summary": "{{tables}} tables, {{relations}} relations",
     "er_diagram_hint": "Hover a dot to see the field mapping. Click to pin. Drag a header to move one table, or empty space to pan.",
     "er_diagram_reset_layout": "Reset layout",
+    "er_diagram_fit": "Fit to window",
     "er_diagram_drag_table": "Drag the header to move this table",
     "er_diagram_legend_one": "1",
     "er_diagram_legend_many": "N",
