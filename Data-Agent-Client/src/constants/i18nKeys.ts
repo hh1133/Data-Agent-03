@@ -268,6 +268,7 @@ export const I18N_KEYS = {
     ER_DIAGRAM_EXPORT_FAILED: 'explorer.er_diagram_export_failed',
     ER_DIAGRAM_OPEN_DATA: 'explorer.er_diagram_open_data',
     ER_DIAGRAM_OPEN_DDL: 'explorer.er_diagram_open_ddl',
+    ER_DIAGRAM_OPEN_EXTERNAL: 'explorer.er_diagram_open_external',
     ER_DIAGRAM_FILTER: 'explorer.er_diagram_filter',
     ER_DIAGRAM_FILTER_EXACT: 'explorer.er_diagram_filter_exact',
     ER_DIAGRAM_FILTER_EMPTY: 'explorer.er_diagram_filter_empty',

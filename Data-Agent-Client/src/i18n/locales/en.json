@@ -479,6 +479,7 @@
     "er_diagram_export_failed": "Failed to export image",
     "er_diagram_open_data": "Data",
     "er_diagram_open_ddl": "DDL",
+    "er_diagram_open_external": "Double-click to open this schema's ER diagram",
     "er_diagram_filter": "Names, comma-separated",
     "er_diagram_filter_exact": "Exact names",
     "er_diagram_filter_empty": "No matching tables",

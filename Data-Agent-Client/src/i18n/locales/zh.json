@@ -479,6 +479,7 @@
     "er_diagram_export_failed": "导出图片失败",
     "er_diagram_open_data": "数据",
     "er_diagram_open_ddl": "DDL",
+    "er_diagram_open_external": "双击打开该 schema 的 ER 图",
     "er_diagram_filter": "表名，逗号分隔",
     "er_diagram_filter_exact": "启用精准过滤",
     "er_diagram_filter_empty": "没有匹配的表",
