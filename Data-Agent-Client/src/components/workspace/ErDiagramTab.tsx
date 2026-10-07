@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { KeyRound } from 'lucide-react';
 import { I18N_KEYS } from '../../constants/i18nKeys';
 import { tableService, type ErDiagram, type ErTable } from '../../services/table.service';
-import type { ErDiagramTabMetadata } from '../../types/tab';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { TableDblClickConsoleTargetEnum } from '../../constants/workspacePreferences';
+import type { ConsoleTabMetadata, ErDiagramTabMetadata } from '../../types/tab';
 import { useToast } from '../../hooks/useToast';
 import {
   downloadBlob,
@@ -360,9 +362,22 @@ interface ErDiagramTabProps {
   metadata: ErDiagramTabMetadata;
 }
 
+function tableLocation(table: ErTable, metadata: ErDiagramTabMetadata) {
+  return {
+    catalog: table.catalog || metadata.catalog || '',
+    schema: table.schema || metadata.schema || '',
+  };
+}
+
 export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   const { t } = useTranslation();
   const toast = useToast();
+  const openTab = useWorkspaceStore((state) => state.openTab);
+  const tabs = useWorkspaceStore((state) => state.tabs);
+  const updateTabContent = useWorkspaceStore((state) => state.updateTabContent);
+  const updateTabMetadata = useWorkspaceStore((state) => state.updateTabMetadata);
+  const switchTab = useWorkspaceStore((state) => state.switchTab);
+  const tableDblClickConsoleTarget = useWorkspaceStore((state) => state.tableDblClickConsoleTarget);
   const markerPrefix = useId().replace(/:/g, '');
   const [diagram, setDiagram] = useState<ErDiagram | null>(null);
   const [error, setError] = useState('');
@@ -688,6 +703,68 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
     ));
   };
 
+  const openTableData = (table: ErTable) => {
+    const { catalog, schema } = tableLocation(table, metadata);
+    const connectionId = Number(metadata.connectionId);
+    openTab({
+      id: `table-${connectionId}-${catalog}-${schema}-${table.name}`,
+      name: table.name,
+      type: 'table',
+      content: '',
+      metadata: {
+        connectionId,
+        dbType: metadata.dbType,
+        connectionName: metadata.connectionName,
+        databaseName: catalog || schema || null,
+        schemaName: schema || null,
+        objectName: table.name,
+        objectType: 'table',
+        catalog: catalog || undefined,
+        schema: schema || undefined,
+      },
+    });
+  };
+
+  const openTableDdl = async (table: ErTable) => {
+    const { catalog, schema } = tableLocation(table, metadata);
+    const connectionId = Number(metadata.connectionId);
+    const consoleTabs = tabs.filter((tab) => (
+      tab.type === 'file'
+      && (tab.metadata as ConsoleTabMetadata | undefined)?.connectionId === connectionId
+    ));
+    const reuse = tableDblClickConsoleTarget === TableDblClickConsoleTargetEnum.REUSE && consoleTabs.length > 0;
+    const tabId = reuse
+      ? consoleTabs[0].id
+      : `ddl-${connectionId}-${catalog}-${schema}-${table.name}`;
+    const consoleMetadata = {
+      connectionId,
+      connectionName: metadata.connectionName,
+      databaseName: catalog || schema || null,
+      schemaName: schema || null,
+      dbType: metadata.dbType,
+    };
+    if (reuse) {
+      updateTabMetadata(tabId, consoleMetadata);
+      switchTab(tabId);
+    } else {
+      openTab({
+        id: tabId,
+        name: table.name,
+        type: 'file',
+        content: '',
+        metadata: consoleMetadata,
+      });
+    }
+    try {
+      const ddl = await tableService.getTableDdl(String(connectionId), table.name, catalog, schema);
+      updateTabContent(tabId, ddl);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t(I18N_KEYS.EXPLORER.LOAD_DDL_FAILED);
+      updateTabContent(tabId, `-- ${message}\n`);
+      toast.error(message);
+    }
+  };
+
   const relationSummary = activeRelations.map((relation) => {
     const via = viaTableName(relation);
     const text = `${relationMapping(relation)} ${cardinalityLabel(relation)}`;
@@ -920,7 +997,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
                       setDraggingTableId(null);
                     }}
                   >
-                    <span className="truncate" title={table.comment || title}>{title}</span>
+                    <span className="min-w-0 flex-1 truncate" title={table.comment || title}>{title}</span>
                     {table.external && (
                       <span className="shrink-0 rounded px-1 text-[10px] font-normal theme-text-secondary">
                         {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EXTERNAL)}
@@ -931,6 +1008,30 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
                         {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_JUNCTION)}
                       </span>
                     )}
+                    <button
+                      type="button"
+                      className="shrink-0 rounded border theme-border px-1 text-[10px] font-normal theme-text-primary"
+                      title={t(I18N_KEYS.EXPLORER.VIEW_DATA)}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openTableData(table);
+                      }}
+                    >
+                      {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_OPEN_DATA)}
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded border theme-border px-1 text-[10px] font-normal theme-text-primary"
+                      title={t(I18N_KEYS.EXPLORER.VIEW_DDL)}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void openTableDdl(table);
+                      }}
+                    >
+                      {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_OPEN_DDL)}
+                    </button>
                   </div>
                   <div
                     className="max-h-[264px] overflow-auto"

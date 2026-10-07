@@ -477,6 +477,8 @@
     "er_diagram_export": "导出图片",
     "er_diagram_exported": "已导出图片",
     "er_diagram_export_failed": "导出图片失败",
+    "er_diagram_open_data": "数据",
+    "er_diagram_open_ddl": "DDL",
     "er_diagram_drag_table": "拖动表头可移动此表",
     "er_diagram_legend_one": "1",
     "er_diagram_legend_many": "N",

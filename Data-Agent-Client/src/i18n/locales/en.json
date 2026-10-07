@@ -477,6 +477,8 @@
     "er_diagram_export": "Export image",
     "er_diagram_exported": "Image exported",
     "er_diagram_export_failed": "Failed to export image",
+    "er_diagram_open_data": "Data",
+    "er_diagram_open_ddl": "DDL",
     "er_diagram_drag_table": "Drag the header to move this table",
     "er_diagram_legend_one": "1",
     "er_diagram_legend_many": "N",
