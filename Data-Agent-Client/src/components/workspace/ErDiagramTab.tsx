@@ -4,6 +4,13 @@ import { KeyRound } from 'lucide-react';
 import { I18N_KEYS } from '../../constants/i18nKeys';
 import { tableService, type ErDiagram, type ErTable } from '../../services/table.service';
 import type { ErDiagramTabMetadata } from '../../types/tab';
+import { useToast } from '../../hooks/useToast';
+import {
+  downloadBlob,
+  erDiagramFilename,
+  renderErDiagramPng,
+  type ErExportScene,
+} from './erDiagramExport';
 import {
   anchorColumns,
   cardinalityLabel,
@@ -355,6 +362,7 @@ interface ErDiagramTabProps {
 
 export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   const { t } = useTranslation();
+  const toast = useToast();
   const markerPrefix = useId().replace(/:/g, '');
   const [diagram, setDiagram] = useState<ErDiagram | null>(null);
   const [error, setError] = useState('');
@@ -366,6 +374,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   const [lines, setLines] = useState<RelationLine[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const drag = useRef<{
     pointerX: number;
     pointerY: number;
@@ -598,6 +607,81 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
     if (fitted) setView(fitted);
   };
 
+  const themeColor = (name: string, fallback: string) => (
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+  );
+
+  const exportImage = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !shown || shown.tables.length === 0 || exporting) return;
+    const scrollTops = new Map<string, number>();
+    canvas.querySelectorAll<HTMLElement>('[data-er-scroller]').forEach((node) => {
+      const id = node.getAttribute('data-er-scroller');
+      if (id) scrollTops.set(id, node.scrollTop);
+    });
+    const scene: ErExportScene = {
+      width: canvasSize.width,
+      height: canvasSize.height,
+      background: themeColor('--bg-main', '#f4f7fb'),
+      grid: themeColor('--border-color', '#d8e1eb'),
+      cardBackground: themeColor('--bg-popup', '#ffffff'),
+      border: themeColor('--border-color', '#d8e1eb'),
+      textPrimary: themeColor('--text-primary', '#172133'),
+      textSecondary: themeColor('--text-secondary', '#5f6f86'),
+      typeColor: '#0ea5e9',
+      keyColor: '#f59e0b',
+      highlight: 'rgba(225, 29, 72, 0.15)',
+      cards: shown.tables.flatMap((table) => {
+        const id = tableId(table);
+        const box = boxById.get(id);
+        if (!box) return [];
+        const scrollerId = encodeURIComponent(id);
+        return [{
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+          title: tableTitle(table),
+          external: Boolean(table.external),
+          badges: [
+            table.external ? { text: t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EXTERNAL), color: themeColor('--text-secondary', '#5f6f86') } : null,
+            junctionTables.has(id) ? { text: t(I18N_KEYS.EXPLORER.ER_DIAGRAM_JUNCTION), color: VIOLET } : null,
+          ].filter((badge): badge is { text: string; color: string } => badge !== null),
+          scrollTop: scrollTops.get(scrollerId) ?? 0,
+          columns: table.columns.map((column) => {
+            const key = columnKey(id, column.name);
+            return {
+              name: column.name,
+              typeName: column.typeName,
+              comment: column.comment ?? '',
+              primaryKey: column.primaryKey,
+              linked: linkedColumns.has(key),
+              highlighted: highlightedColumns.has(key),
+            };
+          }),
+        }];
+      }),
+      lines: lines.map((line) => ({
+        d: line.d,
+        color: line.manyToMany ? VIOLET : ROSE,
+        dashed: line.cross,
+        fromMark: line.fromMark,
+        toMark: line.toMark,
+      })),
+    };
+    setExporting(true);
+    try {
+      const blob = await renderErDiagramPng(scene);
+      const name = metadata.databaseName || metadata.schemaName || metadata.connectionName || 'er-diagram';
+      downloadBlob(blob, erDiagramFilename(name));
+      toast.success(t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EXPORTED));
+    } catch {
+      toast.error(t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EXPORT_FAILED));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const togglePin = (focus: ColumnFocus) => {
     setPinned((current) => (
       current?.tableId === focus.tableId && current.column === focus.column ? null : focus
@@ -653,6 +737,16 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
               onClick={fitToWindow}
             >
               {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_FIT)}
+            </button>
+          )}
+          {shown && shown.tables.length > 0 && (
+            <button
+              type="button"
+              className="rounded border theme-border px-2 py-0.5 theme-text-primary disabled:opacity-40"
+              disabled={exporting}
+              onClick={() => { void exportImage(); }}
+            >
+              {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EXPORT)}
             </button>
           )}
           {shown && shown.tables.length > 0 && (
@@ -840,6 +934,7 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
                   </div>
                   <div
                     className="max-h-[264px] overflow-auto"
+                    data-er-scroller={encodeURIComponent(id)}
                     onScroll={() => measureLines(false)}
                     onWheel={(event) => event.stopPropagation()}
                   >
