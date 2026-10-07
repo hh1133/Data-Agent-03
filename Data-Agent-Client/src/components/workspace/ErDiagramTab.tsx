@@ -18,6 +18,7 @@ import {
   cardinalityLabel,
   columnKey,
   endMarks,
+  filterTablesByName,
   fitDiagramView,
   isCrossRelation,
   junctionTableId,
@@ -390,6 +391,8 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [draggingTableId, setDraggingTableId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [tableNameFilter, setTableNameFilter] = useState('');
+  const [exactTableFilter, setExactTableFilter] = useState(false);
   const drag = useRef<{
     pointerX: number;
     pointerY: number;
@@ -413,6 +416,8 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
     setHover(null);
     setPinned(null);
     setCollapseJunctionTables(false);
+    setTableNameFilter('');
+    setExactTableFilter(false);
     setPositions({});
     setDraggingTableId(null);
     tableService.getErDiagram(
@@ -439,9 +444,13 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
     });
     return tables;
   }, [diagram]);
-  const shown = useMemo(
+  const collapsed = useMemo(
     () => (diagram ? collapseJunctions(diagram, collapseJunctionTables) : null),
     [collapseJunctionTables, diagram],
+  );
+  const shown = useMemo(
+    () => (collapsed ? filterTablesByName(collapsed, tableNameFilter, exactTableFilter) : null),
+    [collapsed, exactTableFilter, tableNameFilter],
   );
 
   useEffect(() => {
@@ -807,6 +816,27 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
               {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_COLLAPSE_JUNCTIONS)}
             </label>
           )}
+          {diagram && diagram.tables.length > 0 && (
+            <>
+              <input
+                type="search"
+                value={tableNameFilter}
+                onChange={(event) => setTableNameFilter(event.target.value)}
+                placeholder={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_FILTER)}
+                aria-label={t(I18N_KEYS.EXPLORER.ER_DIAGRAM_FILTER)}
+                className="h-6 w-52 rounded border theme-border bg-transparent px-2 text-[11px] theme-text-primary outline-none"
+              />
+              <label className="inline-flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  className="accent-violet-600"
+                  checked={exactTableFilter}
+                  onChange={(event) => setExactTableFilter(event.target.checked)}
+                />
+                {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_FILTER_EXACT)}
+              </label>
+            </>
+          )}
           {shown && shown.tables.length > 0 && (
             <button
               type="button"
@@ -915,6 +945,11 @@ export function ErDiagramTab({ metadata }: ErDiagramTabProps) {
         {!loading && diagram && diagram.tables.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-sm theme-text-secondary">
             {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_EMPTY)}
+          </div>
+        )}
+        {!loading && diagram && diagram.tables.length > 0 && shown && shown.tables.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-sm theme-text-secondary">
+            {t(I18N_KEYS.EXPLORER.ER_DIAGRAM_FILTER_EMPTY)}
           </div>
         )}
         {layout && shown && shown.tables.length > 0 && (
