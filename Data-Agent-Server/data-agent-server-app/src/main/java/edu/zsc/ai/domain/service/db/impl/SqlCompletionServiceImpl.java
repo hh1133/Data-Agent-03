@@ -473,24 +473,9 @@ public class SqlCompletionServiceImpl implements SqlCompletionService {
                             || fk.columns().size() != fk.referencedColumns().size()) continue;
                     join(source, fk.referencedSchema(), fk.referencedTable(), fk.referencedColumns(), fk.columns(), fk.name());
                 }
-                for (ForeignJoin fk : cached(sourceDb, "exportedKeys", table.name(), () -> exported(sourceDb, table.name())))
+                for (CachedExportedKey fk : cached(sourceDb, "exportedKeys", table.name(), () -> ExportedKeys.load(connection, sourceDb, table.name())))
                     join(source, fk.schema(), fk.table(), fk.columns(), fk.referencedColumns(), fk.name());
             }
-        }
-        List<ForeignJoin> exported(DbContext source, String table) {
-            record Key(String schema, String table, String name) {}
-            Map<Key, SortedMap<Integer, String[]>> groups = new LinkedHashMap<>();
-            try (ResultSet rs = connection.getMetaData().getExportedKeys(source.catalog(), source.schema(), table)) {
-                while (rs.next()) {
-                    String constraint = rs.getString("FK_NAME");
-                    if (constraint == null) continue; // Cannot safely group unnamed composite constraints.
-                    Key key = new Key(rs.getString("FKTABLE_SCHEM"), rs.getString("FKTABLE_NAME"), constraint);
-                    groups.computeIfAbsent(key, ignored -> new TreeMap<>()).put(rs.getInt("KEY_SEQ"),
-                            new String[]{rs.getString("FKCOLUMN_NAME"), rs.getString("PKCOLUMN_NAME")});
-                }
-            } catch (Exception e) { log.debug("Exported foreign key completion unavailable: {}", e.getMessage()); }
-            return groups.entrySet().stream().map(e -> new ForeignJoin(e.getKey().schema(), e.getKey().table(), e.getKey().name(),
-                    e.getValue().values().stream().map(pair -> pair[0]).toList(), e.getValue().values().stream().map(pair -> pair[1]).toList())).toList();
         }
         void join(CompletionRelation source, String targetSchema, String targetTable,
                   List<String> targetColumns, List<String> sourceColumns, String constraint) {
@@ -514,7 +499,6 @@ public class SqlCompletionServiceImpl implements SqlCompletionService {
         }
     }
     private record Field(CompletionIdentifier id, String type, String remarks) {}
-    private record ForeignJoin(String schema, String table, String name, List<String> columns, List<String> referencedColumns) {}
     private static boolean followsParen(String sql, int end) { return end <= sql.length() && sql.substring(end).stripLeading().startsWith("("); }
     private static String snippetLiteral(String text) { return text.replace("\\", "\\\\").replace("$", "\\$").replace("}", "\\}"); }
     private static SqlCompletionItem item(String label, String kind, String insert, String detail, CompletionContext context,
